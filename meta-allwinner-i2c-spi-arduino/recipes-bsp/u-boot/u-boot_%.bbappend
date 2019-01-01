@@ -1,0 +1,1 @@
+SRC_URI += "file://allwinnerEnv.txt"
