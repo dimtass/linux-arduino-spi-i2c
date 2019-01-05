@@ -8,14 +8,21 @@
  * IIO driver for ARD101PH (7-bit I2C slave address 0x08).
  *
  */
+#include <linux/init.h>
+#include <linux/device.h>
 #include <linux/leds.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/init.h>
+#include <linux/err.h>
 #include <linux/spi/spi.h>
-
+#include <linux/slab.h>
+#include <linux/compat.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 #define ARDLED_DRV_NAME "ardled"
+#define ADXL345_MAX_SPI_FREQ_HZ		1000000
 
 struct ardled_data {
 	struct led_classdev ldev;
@@ -30,22 +37,18 @@ static int ardled_set_brightness(struct led_classdev *ldev,
 	struct ardled_data *led = container_of(ldev, struct ardled_data,
 						  ldev);
 	u16 pwm_value;
-    // struct spi_message msg;
-    // struct spi_transfer xfer;
 	int ret;
+	struct spi_device *spi = led->spi;
 
 	mutex_lock(&led->mutex);
-	pwm_value = brightness & 0xfff;
-	ret = spi_write(led->spi, &pwm_value, 2);
+	pwm_value = cpu_to_be16(brightness & 0xfff);
+	ret = spi_write(spi, &pwm_value, sizeof(pwm_value));
 
-    // xfer.tx_buf = &pwm_value;
-    // xfer.len = sizeof(pwm_value);
-    // xfer.bits_per_word = 16;
-    // spi_message_init(&msg);
-    // spi_message_add_tail(&xfer, &msg);
-    // ret = spi_sync(led->spi, &msg);
+	if (ret < 0) {
+		dev_err(&spi->dev, "failed to set brightness (%d)\n", ret);
+		goto _exit_set;
+	}
 
-	mutex_unlock(&led->mutex);
 
     pr_info("ardled set: %d, ret: %d\n", pwm_value, ret);
     pr_info(
@@ -58,29 +61,37 @@ static int ardled_set_brightness(struct led_classdev *ldev,
         led->spi->bits_per_word, led->spi->chip_select, led->spi->mode, led->spi->max_speed_hz
     );
 
+_exit_set:
+	mutex_unlock(&led->mutex);
 	return ret;
 }
+
+static const struct of_device_id ardled_spi_of_match[] = {
+	{ .compatible = "arduino,ardled" },
+	{ .compatible = "ardled"},
+	{},
+};
+MODULE_DEVICE_TABLE(of, ardled_spi_of_match);
 
 static int ardled_probe(struct spi_device *spi)
 {
     struct ardled_data	*led;
 	int ret;
 
-	led = devm_kzalloc(&spi->dev, sizeof(*led), GFP_KERNEL);
+	led = kzalloc(sizeof(*led), GFP_KERNEL);
 	if (!led)
 		return -ENOMEM;
-
-	spi->bits_per_word = 16;
-    spi->mode = SPI_MODE_0;
 
     led->spi = spi;
     snprintf(led->name, sizeof(led->name), "ardled-%d", spi->controller->bus_num);
     mutex_init(&led->mutex);
+	mutex_lock(&led->mutex);
     led->ldev.name = led->name;
     led->ldev.brightness = LED_OFF;
     led->ldev.max_brightness = 0x3ff;
     led->ldev.brightness_set_blocking = ardled_set_brightness;
     ret = led_classdev_register(&spi->dev, &led->ldev);
+	mutex_unlock(&led->mutex);
     if (ret < 0) {
         dev_err(&spi->dev,
 			"couldn't register LED %s\n",
@@ -89,11 +100,17 @@ static int ardled_probe(struct spi_device *spi)
     }
 
 	spi_set_drvdata(spi, led);
+	ret = spi_setup(spi);
+	if (ret < 0) {
+		pr_info("Error spi_setup: %d\n", ret);
+		goto eledcr;
+	}
 
     pr_info("Arduino PWM LED %s registered\n", led->name);
 	return 0;
 
 eledcr:
+	kfree(led);
 	led_classdev_unregister(&led->ldev);
 
 	return ret;
@@ -108,18 +125,11 @@ static int ardled_remove(struct spi_device *spi)
 	return 0;
 }
 
-static const struct spi_device_id ardled_id[] = {
-	{ ARDLED_DRV_NAME, 0 },
-	{}
-};
-
-MODULE_DEVICE_TABLE(spi, ardled_id);
-
 static struct spi_driver ardled_driver = {
 	.driver = {
 		.name = "ardled",
+		.of_match_table = of_match_ptr(ardled_spi_of_match),
 	},
-	.id_table = ardled_id,
 	.probe = ardled_probe,
 	.remove = ardled_remove,
 };
