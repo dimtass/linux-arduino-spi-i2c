@@ -8,4 +8,5 @@ inherit allwinner-image
 IMAGE_INSTALL += " \
     i2c-tools \
     spitools \
+    fdt \
 "
