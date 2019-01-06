@@ -12,6 +12,9 @@ Also, I'm using the [nanopi-neo](http://wiki.friendlyarm.com/wiki/index.php/Nano
 for the Linux hardware as it's a low spec board with an allwinner H3,
 it's really cheap and common to find and it has both an I2C and SPI interface.
 
+The photo-resistor I'm using is the `VT33A603/2` and also I'm using an orange
+LED.s
+
 ## Connection
 These are the connections between the `Nanopi-neo` and the `Arduino nano`.
 
@@ -62,48 +65,22 @@ sudo apt install bmap-tools
 
 Or get the last version from [here](https://github.com/intel/bmap-tools).
 
-## Connect via SSH
-By default the Yocto image doesn't enable the eth0 interface; therefore,
-you need to connect a USB-to-uart interface to the board in order to have
-access.
-
-> The default `root` has an empty password.
-
-Then you need to connect the board to your router and then run this command to get
-an IP via DHCP:
-
+## Preparing the build environment
+You'll need to build some modules and code for this project, therefore you
+need first to build the Yocto SDK as explained before and the install it in
+its default location. Therefore, after running the `populate_sdk` task with
+bitbake, you'll find the sdk in the `build/tmp/deploy/sdk` folder. To install
+it then run this command to your workstation:
 ```sh
-udhcpc -i eth0
+./build/tmp/deploy/sdk/poky-glibc-x86_64-arduino-test-image-armv7vehf-neon-toolchain-2.5.1.sh
 ```
 
-Then you need to wait for a few seconds and you will see something like this:
+This will install the SDK in the `/opt/poky/2.5.1/` folder.
+
+From now on to build any code you need to open the terminal and run these
+commands:
 ```sh
-udhcpc: started, v1.27.2
-udhcpc: sending discover
-udhcpc: sending select for 192.168.0.33
-udhcpc: lease of 192.168.0.33 obtained, lease time 864000
-/etc/udhcpc.d/50default: Adding DNS 192.168.0.1
-```
-
-That means that now `eth0` has the `192.168.0.33` address; therefore you can
-connect via ssh like this:
-
-```sh
-ssh root@192.168.0.33
-```
-
-
-## Bash script
-To test the project with the bash script you need to copy the script
-to the remote device and then run it. For example:
-
-```sh
-scp bash-script-example.sh root@192.168.0.33:/home/root
-```
-
-Then from the target side run this:
-```sh
-./bash-script-example.sh
+source /opt/poky/2.5.1/environment-setup-armv7vehf-neon-poky-linux-gnueabi
 ```
 
 ## User space app
@@ -123,6 +100,9 @@ cd linux-app
 source /opt/poky/2.5.1/environment-setup-armv7vehf-neon-poky-linux-gnueabi
 $CC linux-app.c -o linux-app
 ```
+
+The `$CC` variable is the path of the gcc toolchain of the SDK, so be aware
+to use that and not just `gcc`.
 
 And then `scp` the executable to the target and run it.
 ```sh
@@ -150,25 +130,32 @@ SPI max speed: 1000000 Hz (1000 KHz)
 ```
 
 ## Kernel drivers
-You can build a kernel driver for the I2C sensor and the SPI PWM LED.
+Instead of running on the user-space you can build a kernel module driver for
+the I2C sensor and the SPI PWM LED. I'll briefly explain how to do that, but
+you need to have some knowledge already about building out-of-tree kernel
+modules.
 
-#### IIO driver
-The IIO subsystem is created to support various ADC, DAC and other sensor
-devices. In our case the arduino I2C device is a light sensor, althoug a
-very simple one. To build and test the driver do the following on your dev
-workstation:
+To be able to build the modules with the SDK you first need to build some
+tools inside the SDK. You need to do that only once, so run these commands:
 
 ```sh
 source /opt/poky/2.5.1/environment-setup-armv7vehf-neon-poky-linux-gnueabi
 cd /opt/poky/2.5.1/sysroots/armv7vehf-neon-poky-linux-gnueabi/usr/src/kernel
-make silentoldconfig scripts
+make
+silentoldconfig scripts
 ```
 
-Then go back to the project folder and:
+#### IIO driver
+The IIO subsystem is created to support various ADC, DAC and other sensor
+devices. In our case the arduino I2C device is a light sensor, althoug a
+very simple one. To build the driver go back to the main repo folder and
+run these commands:
+
 ```sh
 cd kernel_iio_driver
 source /opt/poky/2.5.1/environment-setup-armv7vehf-neon-poky-linux-gnueabi
-KERNEL_SRC="/opt/poky/2.5.1/sysroots/armv7vehf-neon-poky-linux-gnueabi/usr/src/kernel" make
+export KERNEL_SRC="/opt/poky/2.5.1/sysroots/armv7vehf-neon-poky-linux-gnueabi/usr/src/kernel"
+make
 ```
 
 This will create the iio module and now you need to copy it to the target
@@ -176,8 +163,9 @@ This will create the iio module and now you need to copy it to the target
 scp ard101ph.ko root@192.168.0.33:/home/root
 ```
 
-Now on the target run these commands:
+Now on the target it's easy to test an I2C module like this:
 ```sh
+cd /home/root
 insmod ard101ph.ko
 echo ard101ph 0x08 > /sys/bus/i2c/devices/i2c-0/new_device
 cat /sys/bus/iio/devices/iio\:device1/in_illuminance_raw
@@ -197,3 +185,114 @@ echo 0x08 > /sys/bus/i2c/devices/i2c-0/delete_device
 rmmod ard101ph
 ```
 
+To permanately install the module and load it on boot, you need to
+compile the device-tree overlay of the module and make it load during
+boot. To do so, on your workstation run:
+
+```sh
+dtc -I dts -O dtb -o sun8i-h3-i2c-ard101ph.dtbo sun8i-h3-i2c-ard101ph.dts
+scp sun8i-h3-i2c-ard101ph.dtbo root@192.168.0.33:/boot/overlay
+```
+
+And then on the target board edit the `/boot/allwinnerEnv.txt` and add the
+overlay like this:
+```sh
+overlays=sun8i-h3-i2c0 sun8i-h3-i2c-ard101ph
+```
+
+Now add the module with the rest modules and enable it.
+```sh
+mv ard101ph.ko /lib/modules/$(uname -r)
+depmod -a
+```
+
+And then reboot.
+
+Now the module is automatically loaded and you can obtain the ADC value as
+previously shown.
+
+#### SPI LED driver
+Likewise you need to build the driver module and the device-tree overlay and
+make it load during boot.
+
+To build the module run this on the main repo folder on your workstation:
+```sh
+cd kernel_led_driver
+source /opt/poky/2.5.1/environment-setup-armv7vehf-neon-poky-linux-gnueabi
+export KERNEL_SRC="/opt/poky/2.5.1/sysroots/armv7vehf-neon-poky-linux-gnueabi/usr/src/kernel"
+make
+```
+
+This should build the module. Now copy it on the target:
+```sh
+cp ardled.ko root@192.168.0.33:/home/root
+```
+
+In case of SPI you can't just load the module and work, so you need to build
+the device-tree. To do that:
+```sh
+dtc -I dts -O dtb -o sun8i-h3-spi-ardled.dtbo sun8i-h3-spi-ardled.dts
+scp sun8i-h3-spi-ardled.dtbo root@192.168.0.33:/boot/overlay
+```
+
+And then run these commands on the target board:
+```sh
+cd /home/root
+mv ardled.ko /lib/modules/$(uname -r)
+depmod -a
+```
+
+Finally edit the `/boot/allwinnerEnv.txt` on the target and edit
+the `overlays` line like this:
+```sh
+overlays=sun8i-h3-i2c0 sun8i-h3-i2c-ard101ph sun8i-h3-spi-ardled
+```
+
+And the reboot. After the reboot you should be able to write PWM
+values (0-1023) to the LED of the arduino using this command:
+```sh
+echo 520 > /sys/bus/spi/devices/spi0.0/leds/ardled-0/brightness
+```
+
+In case that the module is not automatically loaded (check with
+`lsmod` and search for `ardled`), then you can manually load it
+with this command:
+
+```sh
+modprobe ardled
+```
+
+Then run the commands and unload with this command:
+```sh
+modprobe -r ardled
+```
+
+## Bash scripts
+To test the project with the bash scripts you need to copy the scripts
+to the remote device and then run it. In this case, you have two scripts
+the one is using the spidev and i2c-tools and the other is based on the
+loaded kernel modules.
+
+First copy the modules to the target:
+
+```sh
+cd bash-scripts
+scp *.sh root@192.168.0.33:/home/root
+```
+
+#### spidev bash script
+To test this script you need to follow the above guide and run the spidev
+module. Then from the target terminal run this:
+```sh
+cd /home/root
+./bash-spidev-example.sh
+```
+
+#### module bash script
+To test this script you need to follow the above guide to build and run
+the kernel modules and then you can test with this command:
+
+```sh
+cd /home/root
+./bash-modules-example.sh
+```
