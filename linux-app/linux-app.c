@@ -41,7 +41,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define POLLING_MS	100
+#define POLLING_MS	50
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define STR_MAX_SIZE 32
 
@@ -85,7 +85,7 @@ uint16_t i2c_read_adc(int i2c_addr, int i2c_fd)
 	/* read data */
 	if (read(i2c_fd,i2c_buf,2) != 2) {
 		/* ERROR HANDLING: i2c transaction failed */
-		printf("Failed to read from the i2c bus.\n");
+		printf("Failed to read from the i2c bus (%d).\n", i2c_fd);
 	} else {
 		resp = (i2c_buf[1] << 8) | i2c_buf[0];
 	}
@@ -178,13 +178,13 @@ int main(int argc, char** argv) {
 
 	/* Create the I2C data */
 	struct i2c_dev i2c = {
-		.fd = 0,
+		.fd = -1,
 		.addr = I2C_ADDR
 	};
 	strncpy(i2c.device, argv[1], STR_MAX_SIZE);
 
 	struct spi_dev spi = {
-		.fd = 0,
+		.fd = -1,
 		.mode = 0,
 		.bits = 8,
 		.speed = 1000000,
