@@ -18,7 +18,6 @@
 #include <linux/iio/sysfs.h>
 
 #define ARD101PH_DRV_NAME "ard101ph"
-
 #define ARD101PH_REG_DATA		0x00
 
 struct ard101ph_data {
@@ -70,6 +69,7 @@ static int ard101ph_read_raw(struct iio_dev *indio_dev,
 	pr_info("ard101ph_read_raw: %d\n", *val);
 	return ret;
 }
+EXPORT_SYMBOL(ard101ph_read_raw);
 
 static const struct iio_info ard101ph_info = {
 	.driver_module	= THIS_MODULE,
