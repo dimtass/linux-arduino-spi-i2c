@@ -22,7 +22,7 @@
 #include <linux/of_device.h>
 
 #define ARDLED_DRV_NAME "ardled"
-#define ADXL345_MAX_SPI_FREQ_HZ		1000000
+#define ARDCOMB_MAX_SPI_FREQ_HZ		1000000
 
 struct ardled_data {
 	struct led_classdev ldev;
@@ -49,29 +49,22 @@ static int ardled_set_brightness(struct led_classdev *ldev,
 		goto _exit_set;
 	}
 
-
     pr_info("ardled set: %d, ret: %d\n", pwm_value, ret);
-    pr_info(
-        "bus_num: %d\n"
-        "bits_per_word: %d\n"
-        "chip_select: %d\n"
-        "mode: %d\n"
-        "max_speed_hz: %d\n\n",
-        led->spi->controller->bus_num,
-        led->spi->bits_per_word, led->spi->chip_select, led->spi->mode, led->spi->max_speed_hz
-    );
+    // pr_info(
+    //     "bus_num: %d\n"
+    //     "bits_per_word: %d\n"
+    //     "chip_select: %d\n"
+    //     "mode: %d\n"
+    //     "max_speed_hz: %d\n\n",
+    //     led->spi->controller->bus_num,
+    //     led->spi->bits_per_word, led->spi->chip_select, led->spi->mode, led->spi->max_speed_hz
+    // );
 
 _exit_set:
 	mutex_unlock(&led->mutex);
 	return ret;
 }
-
-static const struct of_device_id ardled_spi_of_match[] = {
-	{ .compatible = "arduino,ardled" },
-	{ .compatible = "ardled"},
-	{},
-};
-MODULE_DEVICE_TABLE(of, ardled_spi_of_match);
+EXPORT_SYMBOL(ardled_set_brightness);
 
 static int ardled_probe(struct spi_device *spi)
 {
@@ -125,13 +118,19 @@ static int ardled_remove(struct spi_device *spi)
 	return 0;
 }
 
+static const struct spi_device_id ardled_id[] = {
+	{ "ardled", 0 },
+	{}
+};
+MODULE_DEVICE_TABLE(spi, ardled_id);
+
 static struct spi_driver ardled_driver = {
 	.driver = {
-		.name = "ardled",
-		.of_match_table = of_match_ptr(ardled_spi_of_match),
+		.name = ARDLED_DRV_NAME,
 	},
 	.probe = ardled_probe,
 	.remove = ardled_remove,
+	.id_table = ardled_id,
 };
 module_spi_driver(ardled_driver);
 

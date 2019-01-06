@@ -2,13 +2,12 @@
 /plugin/;
 
 / {
-	compatible = "allwinner,sun8i-h3";
+    compatible = "brcm,bcm2835", "brcm,bcm2836", "brcm,bcm2708", "brcm,bcm2709";
 
 	fragment@0 {
-		target-path = "/aliases";
+		target = <&spidev0>;
 		__overlay__ {
-			spi0 = "/soc/spi@01c68000";
-			spi1 = "/soc/spi@01c69000";
+			status = "disabled";
 		};
 	};
 
@@ -17,8 +16,9 @@
 		__overlay__ {
 			#address-cells = <1>;
 			#size-cells = <0>;
-            status = "okay";
-			ardled {
+			status = "okay";
+
+			ardled@0 {
 				compatible = "ardled";
 				reg = <0>;
 				spi-max-frequency = <1000000>;
